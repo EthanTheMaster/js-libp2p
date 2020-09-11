@@ -17,7 +17,8 @@ const { codes, messages } = require('./errors')
 
 const AddressManager = require('./address-manager')
 const ConnectionManager = require('./connection-manager')
-const Circuit = require('./circuit')
+const Circuit = require('./circuit/transport')
+const Relay = require('./circuit')
 const Dialer = require('./dialer')
 const Keychain = require('./keychain')
 const Metrics = require('./metrics')
@@ -147,6 +148,7 @@ class Libp2p extends EventEmitter {
 
     if (this._config.relay.enabled) {
       this.transportManager.add(Circuit.prototype[Symbol.toStringTag], Circuit)
+      this.relay = new Relay(this)
     }
 
     // Attach stream multiplexers
@@ -248,6 +250,10 @@ class Libp2p extends EventEmitter {
 
     try {
       this._isStarted = false
+
+      // Relay
+      this.relay && this.relay.stop()
+
       for (const service of this._discovery.values()) {
         service.removeListener('peer', this._onDiscoveryPeer)
       }
@@ -492,6 +498,9 @@ class Libp2p extends EventEmitter {
 
     // Peer discovery
     await this._setupPeerDiscovery()
+
+    // Relay
+    this.relay && this.relay.start()
   }
 
   /**
