@@ -50,9 +50,8 @@ class IdentifyService {
    * @constructor
    * @param {object} options
    * @param {Libp2p} options.libp2p
-   * @param {Map<string, handler>} options.protocols A reference to the protocols we support
    */
-  constructor ({ libp2p, protocols }) {
+  constructor ({ libp2p }) {
     /**
      * @property {PeerStore}
      */
@@ -73,10 +72,9 @@ class IdentifyService {
      */
     this._libp2p = libp2p
 
-    this._protocols = protocols
-
     this.handleMessage = this.handleMessage.bind(this)
 
+    // When a new connection happens, trigger identify
     this.connectionManager.on('peer:connect', (connection) => {
       const peerId = connection.remotePeer
 
@@ -85,6 +83,13 @@ class IdentifyService {
 
     // When self multiaddrs change, trigger identify-push
     this.peerStore.on('change:multiaddrs', ({ peerId }) => {
+      if (peerId.toString() === this.peerId.toString()) {
+        this.pushToPeerStore()
+      }
+    })
+
+    // When self protocols change, trigger identify-push
+    this.peerStore.on('change:protocols', ({ peerId }) => {
       if (peerId.toString() === this.peerId.toString()) {
         this.pushToPeerStore()
       }
@@ -99,7 +104,7 @@ class IdentifyService {
   async push (connections) {
     const signedPeerRecord = await this.peerStore.addressBook.getRawEnvelope(this.peerId)
     const listenAddrs = this._libp2p.multiaddrs.map((ma) => ma.bytes)
-    const protocols = Array.from(this._protocols.keys())
+    const protocols = this.peerStore.protoBook.get(this.peerId) || []
 
     const pushes = connections.map(async connection => {
       try {
@@ -129,6 +134,11 @@ class IdentifyService {
    * @returns {void}
    */
   pushToPeerStore () {
+    // Do not try to push if libp2p node is not running
+    if (!this._libp2p.isStarted()) {
+      return
+    }
+
     const connections = []
     let connection
     for (const peer of this.peerStore.peers.values()) {
@@ -247,6 +257,7 @@ class IdentifyService {
     }
 
     const signedPeerRecord = await this.peerStore.addressBook.getRawEnvelope(this.peerId)
+    const protocols = this.peerStore.protoBook.get(this.peerId) || []
 
     const message = Message.encode({
       protocolVersion: PROTOCOL_VERSION,
@@ -255,7 +266,7 @@ class IdentifyService {
       listenAddrs: this._libp2p.multiaddrs.map((ma) => ma.bytes),
       signedPeerRecord,
       observedAddr: connection.remoteAddr.bytes,
-      protocols: Array.from(this._protocols.keys())
+      protocols
     })
 
     try {
